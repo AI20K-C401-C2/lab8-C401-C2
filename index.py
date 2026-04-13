@@ -282,11 +282,6 @@ def get_embedding(text: str) -> List[float]:
     """
     Tạo embedding vector cho một đoạn text sử dụng mô hình OpenAI text-embedding-3-small.
     """
-    from openai import OpenAI
-    
-    # Load default client, assuming API key is in environment variables (.env)
-    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-    response = client.embeddings.create(
     global openai_client
     if openai_client is None:
         openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -333,9 +328,6 @@ def build_index(docs_dir: Path = DOCS_DIR, db_dir: Path = CHROMA_DB_DIR) -> None
         chunks = chunk_document(doc)
 
         # Embed và lưu từng chunk vào ChromaDB
-        for i, chunk in enumerate(chunks):
-            chunk_id = f"{filepath.stem}_{i}"
-            embedding = get_embedding(chunk["text"])
         print(f"    → Tổng số {len(chunks)} chunks, đang embedding và lưu vào ChromaDB...")
         
         for i, chunk in enumerate(chunks):
