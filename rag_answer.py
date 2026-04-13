@@ -76,12 +76,7 @@ def retrieve_dense(query: str, top_k: int = TOP_K_SEARCH) -> List[Dict[str, Any]
         # Lưu ý: distances trong ChromaDB cosine = 1 - similarity
         # Score = 1 - distance
     """
-    import chromadb
-    from index import get_embedding, CHROMA_DB_DIR
-
-    if not query or not query.strip():
-        return []
-
+    
     import chromadb
     from index import get_embedding, CHROMA_DB_DIR
 
@@ -112,6 +107,24 @@ def retrieve_dense(query: str, top_k: int = TOP_K_SEARCH) -> List[Dict[str, Any]
             
     return chunks
 
+"""
+    documents = (results.get("documents") or [[]])[0]
+    metadatas = (results.get("metadatas") or [[]])[0]
+    distances = (results.get("distances") or [[]])[0]
+
+    dense_results = []
+    for doc, meta, distance in zip(documents, metadatas, distances):
+        # Chroma cosine distance = 1 - similarity
+        similarity = 1 - float(distance)
+        dense_results.append({
+            "text": doc,
+            "metadata": meta or {},
+            "score": similarity,
+        })
+
+    dense_results.sort(key=lambda item: item.get("score", 0), reverse=True)
+    return dense_results[:n_results]
+"""
 
 def select_sources(chunks: List[Dict[str, Any]]) -> List[str]:
     """Lấy danh sách source duy nhất theo đúng thứ tự xuất hiện trong top chunks."""
@@ -595,9 +608,9 @@ if __name__ == "__main__":
             print(f"Lỗi: {e}")
 
     # Uncomment sau khi Sprint 3 hoàn thành:
-    # print("\n--- Sprint 3: So sánh strategies ---")
-    # compare_retrieval_strategies("Approval Matrix để cấp quyền là tài liệu nào?")
-    # compare_retrieval_strategies("ERR-403-AUTH")
+    print("\n--- Sprint 3: So sánh strategies ---")
+    compare_retrieval_strategies("Approval Matrix để cấp quyền là tài liệu nào?")
+    compare_retrieval_strategies("ERR-403-AUTH")
 
     print("\n\nViệc cần làm Sprint 2:")
     print("  1. Implement retrieve_dense() — query ChromaDB")
