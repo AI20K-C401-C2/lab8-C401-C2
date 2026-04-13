@@ -186,8 +186,8 @@ def _split_by_size(
     overlap_chars: int = CHUNK_OVERLAP * 4,
 ) -> List[Dict[str, Any]]:
     """
-    Helper: Split text dài thành các Child Chunks.
-    Ưu tiên cắt theo đoạn văn (\n\n) trước, giữ cấu trúc logic.
+    Helper: Split text dài thành các Child Chunks theo ranh giới đoạn văn (\n\n).
+    Không dùng overlap — mỗi paragraph là một đơn vị logic độc lập.
     """
     if len(text) <= chunk_chars:
         # Toàn bộ section vừa một chunk
@@ -196,55 +196,23 @@ def _split_by_size(
             "metadata": {**base_metadata, "section": section},
         }]
 
-    # Implement split theo natural boundaries với overlap
+    # Cắt theo ranh giới tự nhiên (đoạn văn \n\n) — không overlap
     chunks = []
-    start = 0
-    while start < len(text):
-        end = min(start + chunk_chars, len(text))
-        
-        # Tìm ranh giới tự nhiên gần nhất nếu chưa chạm cuối
-        if end < len(text):
-            # Lùi về dấu chấm hoặc xuống dòng gần nhất
-            last_newline = text.rfind("\n", start, end)
-            last_period = text.rfind(". ", start, end)
-            
-            # Chọn ranh giới hợp lý nhất (ưu tiên xuống dòng)
-            if last_newline != -1 and last_newline > start + chunk_chars // 2:
-                end = last_newline + 1 # Include newline
-            elif last_period != -1 and last_period > start + chunk_chars // 2:
-                end = last_period + 2 # Include period and space
-                
-        chunk_text = text[start:end].strip()
-
-        if chunk_text:
-            chunks.append({
-                "text": chunk_text,
-                "metadata": {**base_metadata, "section": section},
-            })
-            
-        if end == len(text):
-            break
-            
-        # Overlap: lùi lại overlap_chars để chunk sau có ngữ cảnh từ chunk trước
-        start = end - overlap_chars
-    chunks = []
-    # Cắt theo ranh giới tự nhiên (đoạn văn)
     paragraphs = text.split("\n\n")
-    
+
     current_chunk_text = ""
-    
+
     for p in paragraphs:
         # Nếu gộp thêm paragraph này vẫn dưới giới hạn chunk_chars thì gộp
         if len(current_chunk_text) + len(p) <= chunk_chars:
-            # Thêm newline vào giữa các đoạn
             current_chunk_text += (p + "\n\n")
         else:
-            # Nếu current_chunk vượt quá, lưu current_chunk thành 1 block child
+            # Lưu current_chunk thành 1 child chunk
             if current_chunk_text.strip():
                 chunks.append({
                     "text": current_chunk_text.strip(),
                     "metadata": {
-                        **base_metadata, 
+                        **base_metadata,
                         "section": section,
                         "chunk_type": "child",
                         "parent_id": parent_id
@@ -252,13 +220,13 @@ def _split_by_size(
                 })
             # Khởi tạo lại chunk bằng paragraph mới
             current_chunk_text = p + "\n\n"
-            
+
     # Xử lý đoạn cuối còn sót lại
     if current_chunk_text.strip():
         chunks.append({
             "text": current_chunk_text.strip(),
             "metadata": {
-                **base_metadata, 
+                **base_metadata,
                 "section": section,
                 "chunk_type": "child",
                 "parent_id": parent_id
@@ -266,6 +234,7 @@ def _split_by_size(
         })
 
     return chunks
+
 
 
 # =============================================================================

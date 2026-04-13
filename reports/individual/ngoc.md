@@ -29,13 +29,18 @@ Công việc của tôi phụ thuộc vào phần retrieval và generation của
 
 ## 3. Điều tôi ngạc nhiên hoặc gặp khó khăn
 
-Khó khăn lớn nhất là **bug trong `rag_answer.py` và `index.py`** phát hiện ra khi chạy eval lần đầu — toàn bộ 10 câu đều trả về `PIPELINE_ERROR: Collection [rag_lab] does not exist`. Khi tôi debug, tìm ra ba lỗi tích lũy:
+Khó khăn lớn nhất là debug **loạt bug tích lũy từ quá trình merge code** khi chạy eval lần đầu — toàn bộ 10 câu đều trả về `PIPELINE_ERROR: Collection [rag_lab] does not exist`. Tôi trace ngược từ eval.py → rag_answer.py → index.py và tìm ra bốn lỗi:
 
-1. `index.py` có **SyntaxError** tại `get_embedding()` — hai đoạn code chồng nhau do merge không sạch, làm mở ngoặc không đóng.
-2. `rag_answer.py` định nghĩa hàm `rerank()` **hai lần** — Python chỉ giữ định nghĩa sau cùng (không có cross-encoder), làm mất luôn logic đã implement.
-3. `rag_answer.py` có **dead code sau `return`** trong `retrieve_dense()` — 15 dòng code không bao giờ chạy nhưng gây nhầm lẫn khi đọc.
+1. **`index.py` — SyntaxError tại `get_embedding()`**: Hai đoạn code chồng nhau do merge không sạch — `response = client.embeddings.create(` bị bỏ dở, làm mở ngoặc không đóng. Python báo `SyntaxError` khi import.
 
-Điều tôi không ngờ là những lỗi này không bị phát hiện bởi `python -m py_compile` (không có lỗi syntax ở file 2 và 3), nên phải chạy thực tế mới thấy. Sau khi fix xong và chạy lại `index.py` để build ChromaDB (58 chunks từ 5 file), `eval.py` mới chạy được end-to-end. Bài học: unit test từng function quan trọng hơn là chờ đến integration test cuối.
+2. **`index.py` — Dead code sliding-window trong `_split_by_size()`**: Hàm có *hai* implementations gộp lại — phần đầu (dòng 200–229) là sliding-window với overlap, phần sau (dòng 230+) là paragraph-based không overlap. Vì dòng 230 reset `chunks = []`, phần sliding-window **không bao giờ có tác dụng**. Code thực thi thật là paragraph-based theo `\n\n`, **overlap = 0**. Đây chính xác là chiến lược Parent-Child nhóm muốn dùng — nhưng việc để dead code làm nhầm lẫn khi đọc tài liệu.
+
+3. **`rag_answer.py` — Hàm `rerank()` định nghĩa hai lần**: Python chỉ giữ định nghĩa sau cùng (return `candidates[:top_k]`), làm mất luôn logic cross-encoder đã implement ở định nghĩa đầu.
+
+4. **`rag_answer.py` — Dead code sau `return` trong `retrieve_dense()`**: 15 dòng code không bao giờ chạy nhưng gây nhầm lẫn khi đọc.
+
+Điều tôi không ngờ: lỗi 2, 3, 4 **không bị phát hiện bởi `python -m py_compile`** vì không phải lỗi syntax — phải chạy thực tế mới thấy. Bài học: sau mỗi lần merge cần đọc diff cẩn thận, không chỉ test compile.
+
 
 ---
 

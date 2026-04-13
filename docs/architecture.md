@@ -64,37 +64,28 @@ Hệ thống xây dựng **trợ lý AI nội bộ** phục vụ nhân viên CS 
 
 ### Tài liệu được index
 
-| File | Department | Nội dung chính | Số chunk (ước tính) |
-|------|-----------|----------------|---------------------|
-| `policy_refund_v4.txt` | CS | Chính sách hoàn tiền, ngoại lệ, thời hạn | ~8 |
-| `sla_p1_2026.txt` | IT Support | SLA ticket P1: thời gian phản hồi, escalation | ~8 |
-| `access_control_sop.txt` | IT Security | Approval matrix, cấp quyền Level 1-3 | ~8 |
-| `it_helpdesk_faq.txt` | IT | FAQ: tài khoản bị khóa, reset password, WiFi | ~8 |
-| `hr_leave_policy.txt` | HR | Nghỉ phép, remote work, chính sách 2026 | ~8 |
+| File | Nguồn | Department | Số chunk |
+|------|-------|-----------|---------|
+| `policy_refund_v4.txt` | policy/refund-v4.pdf | CS | 12 |
+| `sla_p1_2026.txt` | support/sla-p1-2026.pdf | IT | 10 |
+| `access_control_sop.txt` | it/access-control-sop.md | IT Security | 14 |
+| `it_helpdesk_faq.txt` | support/helpdesk-faq.md | IT | 12 |
+| `hr_leave_policy.txt` | hr/leave-policy-2026.pdf | HR | 10 |
 
 ### Quyết định chunking
 
-| Tham số | Giá trị | Lý do chọn |
-|---------|---------|------------|
-| **Chunk size** | 400 tokens (~1600 ký tự) | Đủ ngữ cảnh cho 1 điều khoản, không quá dài gây lost-in-middle |
-| **Overlap** | 80 tokens (~320 ký tự) | Giữ ngữ cảnh khi điều khoản chạy qua ranh giới chunk |
-| **Chiến lược** | **Parent-Child** theo heading `=== ... ===` | Phù hợp với cấu trúc tài liệu chính sách có section rõ ràng |
-| **Metadata** | `source`, `section`, `department`, `effective_date`, `access`, `chunk_type`, `parent_id` | Phục vụ filter, freshness check, citation, debug |
-
-**Chi tiết chiến lược Parent-Child:**
-- **Parent chunk**: Toàn bộ nội dung 1 section → dùng để retrieve rộng
-- **Child chunk**: Từng đoạn paragraph trong section → dùng để đưa vào prompt
-- Khi retrieval, **chỉ dùng child chunks** để tránh context quá dài
+| Tham số | Giá trị | Lý do |
+|---------|---------|-------|
+| **Chunk size** | 400 tokens (limit) | Thực tế trung bình ~310 ký tự (~77 tokens) |
+| **Overlap** | 0 tokens (thực tế) | Cắt theo ranh giới đoạn văn (`\n\n`) để giữ tính liên kết tự nhiên |
+| **Chunking strategy** | Parent-Child | Mỗi Section là Parent, các Paragraph là Child (Tỉ lệ 1:1 hiện tại) |
+| **Metadata fields** | source, section, effective_date, department, access, chunk_type | **100% Coverage**: Đã xác thực qua analyze_db.py |
 
 ### Embedding model
 
-| Tham số | Giá trị |
-|---------|---------|
-| **Model** | `text-embedding-3-small` (OpenAI) |
-| **Dimension** | 1536 |
-| **Vector store** | ChromaDB `PersistentClient` (local, không cần server) |
-| **Similarity metric** | Cosine (HNSW space = cosine) |
-| **Collection** | `rag_lab` |
+- **Model**: OpenAI `text-embedding-3-small`
+- **Vector store**: ChromaDB (PersistentClient)
+- **Similarity metric**: Cosine
 
 ---
 
