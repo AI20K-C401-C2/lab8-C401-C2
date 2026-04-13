@@ -1,6 +1,6 @@
 # Báo Cáo Cá Nhân — Lab Day 08: RAG Pipeline
 
-**Họ và tên:** Nguyễn Thị Linh  
+**Họ và tên:** Nguyễn Thùy Linh  
 **Vai trò trong nhóm:** Retrieval Owner (Sprint 2 — Dense Retrieval)  
 **Ngày nộp:** 2026-04-13  
 **Độ dài yêu cầu:** 500–800 từ
