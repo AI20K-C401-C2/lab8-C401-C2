@@ -1,7 +1,7 @@
 # Báo Cáo Cá Nhân — Lab Day 08: RAG Pipeline
 
 **Họ và tên:** Phạm Đình Trường  
-** Mã Sinh Viên** 2A202600255
+**Mã Sinh Viên** 2A202600255
 **Vai trò trong nhóm:** Phụ trách rag_answer.py phần generation Làm prompt grounded, citation, abstain  
 **Ngày nộp:** 13/04/2026  
 **Độ dài yêu cầu:** 500–800 từ
