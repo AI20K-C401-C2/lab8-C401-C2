@@ -189,44 +189,6 @@ def _split_by_size(
     Helper: Split text dài thành các Child Chunks.
     Ưu tiên cắt theo đoạn văn (\n\n) trước, giữ cấu trúc logic.
     """
-    if len(text) <= chunk_chars:
-        # Toàn bộ section vừa một chunk
-        return [{
-            "text": text,
-            "metadata": {**base_metadata, "section": section},
-        }]
-
-    # Implement split theo natural boundaries với overlap
-    chunks = []
-    start = 0
-    while start < len(text):
-        end = min(start + chunk_chars, len(text))
-        
-        # Tìm ranh giới tự nhiên gần nhất nếu chưa chạm cuối
-        if end < len(text):
-            # Lùi về dấu chấm hoặc xuống dòng gần nhất
-            last_newline = text.rfind("\n", start, end)
-            last_period = text.rfind(". ", start, end)
-            
-            # Chọn ranh giới hợp lý nhất (ưu tiên xuống dòng)
-            if last_newline != -1 and last_newline > start + chunk_chars // 2:
-                end = last_newline + 1 # Include newline
-            elif last_period != -1 and last_period > start + chunk_chars // 2:
-                end = last_period + 2 # Include period and space
-                
-        chunk_text = text[start:end].strip()
-
-        if chunk_text:
-            chunks.append({
-                "text": chunk_text,
-                "metadata": {**base_metadata, "section": section},
-            })
-            
-        if end == len(text):
-            break
-            
-        # Overlap: lùi lại overlap_chars để chunk sau có ngữ cảnh từ chunk trước
-        start = end - overlap_chars
     chunks = []
     # Cắt theo ranh giới tự nhiên (đoạn văn)
     paragraphs = text.split("\n\n")
@@ -282,11 +244,6 @@ def get_embedding(text: str) -> List[float]:
     """
     Tạo embedding vector cho một đoạn text sử dụng mô hình OpenAI text-embedding-3-small.
     """
-    from openai import OpenAI
-    
-    # Load default client, assuming API key is in environment variables (.env)
-    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-    response = client.embeddings.create(
     global openai_client
     if openai_client is None:
         openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -307,7 +264,6 @@ def build_index(docs_dir: Path = DOCS_DIR, db_dir: Path = CHROMA_DB_DIR) -> None
     print(f"Đang build index từ: {docs_dir}")
     db_dir.mkdir(parents=True, exist_ok=True)
 
-    # Khởi tạo ChromaDB
     # Khởi tạo ChromaDB client & collection
     client = chromadb.PersistentClient(path=str(db_dir))
     collection = client.get_or_create_collection(
@@ -326,16 +282,11 @@ def build_index(docs_dir: Path = DOCS_DIR, db_dir: Path = CHROMA_DB_DIR) -> None
         print(f"  Processing: {filepath.name}")
         raw_text = filepath.read_text(encoding="utf-8")
 
-        # Gọi preprocess_document
         doc = preprocess_document(raw_text, str(filepath))
 
         # Gọi chunk_document
         chunks = chunk_document(doc)
 
-        # Embed và lưu từng chunk vào ChromaDB
-        for i, chunk in enumerate(chunks):
-            chunk_id = f"{filepath.stem}_{i}"
-            embedding = get_embedding(chunk["text"])
         print(f"    → Tổng số {len(chunks)} chunks, đang embedding và lưu vào ChromaDB...")
         
         for i, chunk in enumerate(chunks):
@@ -351,8 +302,6 @@ def build_index(docs_dir: Path = DOCS_DIR, db_dir: Path = CHROMA_DB_DIR) -> None
                 documents=[chunk["text"]],
                 metadatas=[chunk["metadata"]],
             )
-        
-        print(f"    → {len(chunks)} chunks đã index")
             
         total_chunks += len(chunks)
 
@@ -465,15 +414,6 @@ if __name__ == "__main__":
     build_index()
 
     # Bước 4: Kiểm tra index
-    list_chunks()
-    inspect_metadata_coverage()
-
-    print("\nSprint 1 setup hoàn thành!")
-    print("Việc cần làm:")
-    print("  1. Implement get_embedding() - chọn OpenAI hoặc Sentence Transformers")
-    print("  2. Implement phần TODO trong build_index()")
-    print("  3. Chạy build_index() và kiểm tra với list_chunks()")
-    print("  4. Nếu chunking chưa tốt: cải thiện _split_by_size() để split theo paragraph")
     print("\n--- Kiểm tra Index ---")
     list_chunks()
     inspect_metadata_coverage()
