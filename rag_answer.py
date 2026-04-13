@@ -268,16 +268,19 @@ def build_context_block(chunks: List[Dict[str, Any]]) -> str:
         meta = chunk.get("metadata", {})
         source = meta.get("source", "unknown")
         section = meta.get("section", "")
+        dept = meta.get("department", "unknown")
+        eff_date = meta.get("effective_date", "unknown")
         score = chunk.get("score", 0)
         text = chunk.get("text", "")
 
-        # TODO: Tùy chỉnh format nếu muốn (thêm effective_date, department, ...)
-        header = f"[{i}] {source}"
-        if section:
-            header += f" | {section}"
-        if score > 0:
-            header += f" | score={score:.2f}"
-
+        # Format header với đầy đủ metadata để AI có đủ thông tin trích dẫn
+        header_parts = [f"[{i}] SOURCE: {source}"]
+        if section: header_parts.append(f"SECTION: {section}")
+        if dept != "unknown": header_parts.append(f"DEPT: {dept}")
+        if eff_date != "unknown": header_parts.append(f"DATE: {eff_date}")
+        if score > 0: header_parts.append(f"SCORE: {score:.2f}")
+        
+        header = " | ".join(header_parts)
         context_parts.append(f"{header}\n{text}")
 
     return "\n\n".join(context_parts)
@@ -297,18 +300,21 @@ def build_grounded_prompt(query: str, context_block: str) -> str:
     - Thêm ngôn ngữ phản hồi (tiếng Việt vs tiếng Anh)
     - Điều chỉnh tone phù hợp với use case (CS helpdesk, IT support)
     """
-    prompt = f"""Answer only from the retrieved context below.
-If the context is insufficient to answer the question, say you do not know and do not make up information.
-Cite the source field (in brackets like [1]) when possible.
-Keep your answer short, clear, and factual.
-Respond in the same language as the question.
+    prompt = f"""Bạn là một trợ lý AI chuyên nghiệp cho khối CS + IT Helpdesk. 
+Hãy trả lời câu hỏi của người dùng CHỈ dựa trên các đoạn ngữ cảnh (Context) được cung cấp dưới đây.
 
-Question: {query}
+QUY TẮC CỐT LÕI:
+1. GROUNDED: Chỉ sử dụng thông tin có trong Context. Không dùng kiến thức bên ngoài.
+2. ABSTAIN: Nếu trong Context không có đủ thông tin để trả lời, hãy trả lời chính xác là: "Không đủ dữ liệu". Đừng cố bịa ra câu trả lời.
+3. CITATION: Trích dẫn nguồn cho mọi ý chính trong câu trả lời bằng cách đặt số thứ tự của tài liệu tương ứng trong ngoặc vuông ở cuối câu, ví dụ: [1], [2].
+4. NGÔN NGỮ: Trả lời bằng cùng ngôn ngữ với câu hỏi (Tiếng Việt).
 
-Context:
+NGỮ CẢNH (CONTEXT):
 {context_block}
 
-Answer:"""
+CÂU HỎI: {query}
+
+CÂU TRẢ LỜI:"""
     return prompt
 
 
