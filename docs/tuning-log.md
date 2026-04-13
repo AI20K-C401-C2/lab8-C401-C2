@@ -10,13 +10,13 @@
 **Ngày:** 2026-04-13  
 **Config:**
 ```
-retrieval_mode = "dense"
-chunk_size     = 400 tokens (~1600 ký tự)
-overlap        = 80 tokens  (~320 ký tự)
-top_k_search   = 10
-top_k_select   = 3
-use_rerank     = False
-llm_model      = gpt-4o-mini
+retrieval_mode  = "dense"
+chunk_strategy  = "parent-child"   # split theo heading === ... ===, child là paragraph
+chunk_size      = 400 tokens (~1600 ký tự)   # giới hạn child chunk
+top_k_search    = 10
+top_k_select    = 3
+use_rerank      = False
+llm_model       = gpt-4o-mini
 ```
 
 **Scorecard Baseline:**
