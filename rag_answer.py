@@ -79,6 +79,14 @@ def retrieve_dense(query: str, top_k: int = TOP_K_SEARCH) -> List[Dict[str, Any]
     import chromadb
     from index import get_embedding, CHROMA_DB_DIR
 
+    if not query or not query.strip():
+        return []
+
+    import chromadb
+    from index import get_embedding, CHROMA_DB_DIR
+
+    n_results = max(1, int(top_k))
+
     client = chromadb.PersistentClient(path=str(CHROMA_DB_DIR))
     collection = client.get_collection("rag_lab")
 
@@ -103,6 +111,40 @@ def retrieve_dense(query: str, top_k: int = TOP_K_SEARCH) -> List[Dict[str, Any]
             })
             
     return chunks
+        n_results=n_results,
+        include=["documents", "metadatas", "distances"],
+    )
+
+    documents = (results.get("documents") or [[]])[0]
+    metadatas = (results.get("metadatas") or [[]])[0]
+    distances = (results.get("distances") or [[]])[0]
+
+    dense_results = []
+    for doc, meta, distance in zip(documents, metadatas, distances):
+        # Chroma cosine distance = 1 - similarity
+        similarity = 1 - float(distance)
+        dense_results.append({
+            "text": doc,
+            "metadata": meta or {},
+            "score": similarity,
+        })
+
+    dense_results.sort(key=lambda item: item.get("score", 0), reverse=True)
+    return dense_results[:n_results]
+
+
+def select_sources(chunks: List[Dict[str, Any]]) -> List[str]:
+    """Lấy danh sách source duy nhất theo đúng thứ tự xuất hiện trong top chunks."""
+    sources: List[str] = []
+    seen = set()
+
+    for chunk in chunks:
+        source = chunk.get("metadata", {}).get("source", "unknown")
+        if source not in seen:
+            seen.add(source)
+            sources.append(source)
+
+    return sources
 
 
 # =============================================================================
@@ -420,10 +462,11 @@ def rag_answer(
             print(f"  [{i+1}] score={c.get('score', 0):.3f} | {c['metadata'].get('source', '?')}")
 
     # --- Bước 2: Rerank (optional) ---
+    n_select = max(1, int(top_k_select))
     if use_rerank:
-        candidates = rerank(query, candidates, top_k=top_k_select)
+        candidates = rerank(query, candidates, top_k=n_select)
     else:
-        candidates = candidates[:top_k_select]
+        candidates = candidates[:n_select]
 
     if verbose:
         print(f"[RAG] After select: {len(candidates)} chunks")
@@ -439,10 +482,7 @@ def rag_answer(
     answer = call_llm(prompt)
 
     # --- Bước 5: Extract sources ---
-    sources = list({
-        c["metadata"].get("source", "unknown")
-        for c in candidates
-    })
+    sources = select_sources(candidates)
 
     return {
         "query": query,
