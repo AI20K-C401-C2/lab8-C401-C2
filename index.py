@@ -284,6 +284,9 @@ def get_embedding(text: str) -> List[float]:
     """
     from openai import OpenAI
     
+    # Load default client, assuming API key is in environment variables (.env)
+    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    response = client.embeddings.create(
     global openai_client
     if openai_client is None:
         openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))

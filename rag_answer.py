@@ -79,6 +79,12 @@ def retrieve_dense(query: str, top_k: int = TOP_K_SEARCH) -> List[Dict[str, Any]
     import chromadb
     from index import get_embedding, CHROMA_DB_DIR
 
+    if not query or not query.strip():
+        return []
+
+    import chromadb
+    from index import get_embedding, CHROMA_DB_DIR
+
     n_results = max(1, int(top_k))
 
     client = chromadb.PersistentClient(path=str(CHROMA_DB_DIR))
@@ -105,6 +111,27 @@ def retrieve_dense(query: str, top_k: int = TOP_K_SEARCH) -> List[Dict[str, Any]
             })
             
     return chunks
+        n_results=n_results,
+        include=["documents", "metadatas", "distances"],
+    )
+
+    documents = (results.get("documents") or [[]])[0]
+    metadatas = (results.get("metadatas") or [[]])[0]
+    distances = (results.get("distances") or [[]])[0]
+
+    dense_results = []
+    for doc, meta, distance in zip(documents, metadatas, distances):
+        # Chroma cosine distance = 1 - similarity
+        similarity = 1 - float(distance)
+        dense_results.append({
+            "text": doc,
+            "metadata": meta or {},
+            "score": similarity,
+        })
+
+    dense_results.sort(key=lambda item: item.get("score", 0), reverse=True)
+    return dense_results[:n_results]
+
 
 def select_sources(chunks: List[Dict[str, Any]]) -> List[str]:
     """Lấy danh sách source duy nhất theo đúng thứ tự xuất hiện trong top chunks."""
