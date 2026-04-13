@@ -247,9 +247,14 @@ Model Answer:
 Task:
 Check if all key points in expected answer are covered.
 
+Rate completeness on a scale of 1 to 5:
+1 = Missing almost all key points
+3 = Covers some key points but misses important details
+5 = Covers all key points comprehensively
+
 Return JSON:
 {{
-  "score": int,
+  "score": <integer 1-5>,
   "missing_points": ["..."],
   "reason": "short explanation"
 }}
@@ -258,9 +263,23 @@ Return JSON:
     try:
         res = llm_call(prompt)
         data = json.loads(res)
+        score = data.get("score")
+
+        # Normalize common LLM misbehaviors
+        if isinstance(score, (int, float)):
+            if score == 100:
+                score = 5
+            elif score == 0:
+                score = 1
+            elif score == 1 and data.get("missing_points") == []:
+                # Sometimes 1 means "complete" in binary mode; if nothing missing, treat as 5
+                score = 5
+            score = max(1, min(5, int(score)))
+        else:
+            score = None
 
         return {
-            "score": data.get("score"),
+            "score": score,
             "missing_points": data.get("missing_points", []),
             "notes": data.get("reason"),
         }
