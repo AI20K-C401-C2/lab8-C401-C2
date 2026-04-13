@@ -176,9 +176,42 @@ def retrieve_sparse(query: str, top_k: int = TOP_K_SEARCH) -> List[Dict[str, Any
     """
     # TODO Sprint 3: Implement BM25 search
     # Tạm thời return empty list
-    print("[retrieve_sparse] Chưa implement — Sprint 3")
-    return []
+    #print("[retrieve_sparse] Chưa implement — Sprint 3")
+    #return []
+    import chromadb
+    from rank_bm25 import BM25Okapi
+    from index import CHROMA_DB_DIR
 
+    client = chromadb.PersistentClient(path=str(CHROMA_DB_DIR))
+    collection = client.get_collection("rag_lab")
+
+    all_docs = collection.get(
+        include=["documents", "metadatas"]
+    )
+
+    corpus = all_docs["documents"]
+    import re
+
+    def tokenize(text):
+        return re.findall(r"\w+", text.lower())
+
+    tokenized_corpus = [tokenize(doc) for doc in corpus]
+    tokenized_query = tokenize(query)
+    bm25 = BM25Okapi(tokenized_corpus)
+
+    scores = bm25.get_scores(tokenized_query)
+
+    top_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:top_k]
+
+    results = []
+    for idx in top_indices:
+        results.append({
+            "text": all_docs["documents"][idx],
+            "metadata": all_docs["metadatas"][idx],
+            "score": scores[idx],
+        })
+    
+    return results
 
 # =============================================================================
 # RETRIEVAL — HYBRID (Dense + Sparse với Reciprocal Rank Fusion)
@@ -215,9 +248,75 @@ def retrieve_hybrid(
     """
     # TODO Sprint 3: Implement hybrid RRF
     # Tạm thời fallback về dense
-    print("[retrieve_hybrid] Chưa implement RRF — fallback về dense")
-    return retrieve_dense(query, top_k)
+    dense_results = retrieve_dense(query, top_k)
+    sparse_results = retrieve_sparse(query, top_k)
+    
+    rrf_scores ={}
 
+    for rank, chunk in enumerate(dense_results):
+        key = f"{chunk['metadata'].get('source','')}_{hash(chunk['text'])}"
+        if key not in rrf_scores:
+            rrf_scores[key] = {"chunk": chunk, "score": 0}
+        rrf_scores[key]["score"] += dense_weight * (1 / (60 + rank))
+    
+    for rank, chunk in enumerate(sparse_results):
+        key = chunk["text"][:100]
+        if key not in rrf_scores:
+            rrf_scores[key] = {"chunk": chunk, "score": 0}
+        rrf_scores[key]["score"] += sparse_weight * (1 / (60 + rank))
+    
+    sorted_results = sorted(
+        rrf_scores.values(),
+        key=lambda x: x["score"],
+        reverse=True
+    )
+    
+    return [chunk["chunk"] for chunk in sorted_results[:top_k]]
+
+
+# =============================================================================
+# RERANK (Sprint 3 alternative)
+# Cross-encoder để chấm lại relevance sau search rộng
+# =============================================================================
+
+def rerank(
+    query: str,
+    candidates: List[Dict[str, Any]],
+    top_k: int = TOP_K_SELECT,
+) -> List[Dict[str, Any]]:
+    """
+    Rerank các candidate chunks bằng cross-encoder.
+
+    Cross-encoder: chấm lại "chunk nào thực sự trả lời câu hỏi này?"
+    MMR (Maximal Marginal Relevance): giữ relevance nhưng giảm trùng lặp
+
+    Funnel logic (từ slide):
+      Search rộng (top-20) → Rerank (top-6) → Select (top-3)
+
+    TODO Sprint 3 (nếu chọn rerank):
+    Option A — Cross-encoder:
+        from sentence_transformers import CrossEncoder
+        model = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
+        pairs = [[query, chunk["text"]] for chunk in candidates]
+        scores = model.predict(pairs)
+        ranked = sorted(zip(candidates, scores), key=lambda x: x[1], reverse=True)
+        return [chunk for chunk, _ in ranked[:top_k]]
+
+    Option B — Rerank bằng LLM (đơn giản hơn nhưng tốn token):
+        Gửi list chunks cho LLM, yêu cầu chọn top_k relevant nhất
+
+    Khi nào dùng rerank:
+    - Dense/hybrid trả về nhiều chunk nhưng có noise
+    - Muốn chắc chắn chỉ 3-5 chunk tốt nhất vào prompt
+    """
+    # TODO Sprint 3: Implement rerank
+    # Tạm thời trả về top_k đầu tiên (không rerank)
+    from sentence_transformers import CrossEncoder
+    model = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
+    pairs = [[query, chunk["text"]] for chunk in candidates]
+    scores = model.predict(pairs)
+    ranked = sorted(zip(candidates, scores), key=lambda x: x[1], reverse=True)
+    return [chunk for chunk, _ in ranked[:top_k]]
 
 # =============================================================================
 # RERANK (Sprint 3 alternative)
