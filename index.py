@@ -97,8 +97,9 @@ def preprocess_document(raw_text: str, filepath: str) -> Dict[str, Any]:
 
     # TODO: Thêm bước normalize text nếu cần
     # Gợi ý: bỏ ký tự đặc biệt thừa, chuẩn hóa dấu câu
-    cleaned_text = re.sub(r"\n{3,}", "\n\n", cleaned_text)  # max 2 dòng trống liên tiếp
-
+    cleaned_text = re.sub(r"\n{3,}", "\n\n", cleaned_text) # max 2 dòng trống liên tiếp
+    cleaned_text = re.sub(r"[ \t]+\n", "\n", cleaned_text)
+    cleaned_text = cleaned_text.strip()
     return {
         "text": cleaned_text,
         "metadata": metadata,
