@@ -76,10 +76,75 @@ def retrieve_dense(query: str, top_k: int = TOP_K_SEARCH) -> List[Dict[str, Any]
         # Lưu ý: distances trong ChromaDB cosine = 1 - similarity
         # Score = 1 - distance
     """
-    raise NotImplementedError(
-        "TODO Sprint 2: Implement retrieve_dense().\n"
-        "Tham khảo comment trong hàm để biết cách query ChromaDB."
+    import chromadb
+    from index import get_embedding, CHROMA_DB_DIR
+
+    if not query or not query.strip():
+        return []
+
+    import chromadb
+    from index import get_embedding, CHROMA_DB_DIR
+
+    n_results = max(1, int(top_k))
+
+    client = chromadb.PersistentClient(path=str(CHROMA_DB_DIR))
+    collection = client.get_collection("rag_lab")
+
+    query_embedding = get_embedding(query)
+    results = collection.query(
+        query_embeddings=[query_embedding],
+        n_results=top_k,
+        include=["documents", "metadatas", "distances"]
     )
+
+    chunks = []
+    if results and results.get("documents") and len(results["documents"]) > 0:
+        docs = results["documents"][0]
+        metas = results["metadatas"][0]
+        dists = results["distances"][0]
+        
+        for i in range(len(docs)):
+            chunks.append({
+                "text": docs[i],
+                "metadata": metas[i],
+                "score": 1.0 - dists[i] if dists[i] is not None else 0.0
+            })
+            
+    return chunks
+        n_results=n_results,
+        include=["documents", "metadatas", "distances"],
+    )
+
+    documents = (results.get("documents") or [[]])[0]
+    metadatas = (results.get("metadatas") or [[]])[0]
+    distances = (results.get("distances") or [[]])[0]
+
+    dense_results = []
+    for doc, meta, distance in zip(documents, metadatas, distances):
+        # Chroma cosine distance = 1 - similarity
+        similarity = 1 - float(distance)
+        dense_results.append({
+            "text": doc,
+            "metadata": meta or {},
+            "score": similarity,
+        })
+
+    dense_results.sort(key=lambda item: item.get("score", 0), reverse=True)
+    return dense_results[:n_results]
+
+
+def select_sources(chunks: List[Dict[str, Any]]) -> List[str]:
+    """Lấy danh sách source duy nhất theo đúng thứ tự xuất hiện trong top chunks."""
+    sources: List[str] = []
+    seen = set()
+
+    for chunk in chunks:
+        source = chunk.get("metadata", {}).get("source", "unknown")
+        if source not in seen:
+            seen.add(source)
+            sources.append(source)
+
+    return sources
 
 
 # =============================================================================
@@ -111,9 +176,42 @@ def retrieve_sparse(query: str, top_k: int = TOP_K_SEARCH) -> List[Dict[str, Any
     """
     # TODO Sprint 3: Implement BM25 search
     # Tạm thời return empty list
-    print("[retrieve_sparse] Chưa implement — Sprint 3")
-    return []
+    #print("[retrieve_sparse] Chưa implement — Sprint 3")
+    #return []
+    import chromadb
+    from rank_bm25 import BM25Okapi
+    from index import CHROMA_DB_DIR
 
+    client = chromadb.PersistentClient(path=str(CHROMA_DB_DIR))
+    collection = client.get_collection("rag_lab")
+
+    all_docs = collection.get(
+        include=["documents", "metadatas"]
+    )
+
+    corpus = all_docs["documents"]
+    import re
+
+    def tokenize(text):
+        return re.findall(r"\w+", text.lower())
+
+    tokenized_corpus = [tokenize(doc) for doc in corpus]
+    tokenized_query = tokenize(query)
+    bm25 = BM25Okapi(tokenized_corpus)
+
+    scores = bm25.get_scores(tokenized_query)
+
+    top_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:top_k]
+
+    results = []
+    for idx in top_indices:
+        results.append({
+            "text": all_docs["documents"][idx],
+            "metadata": all_docs["metadatas"][idx],
+            "score": scores[idx],
+        })
+    
+    return results
 
 # =============================================================================
 # RETRIEVAL — HYBRID (Dense + Sparse với Reciprocal Rank Fusion)
@@ -150,9 +248,75 @@ def retrieve_hybrid(
     """
     # TODO Sprint 3: Implement hybrid RRF
     # Tạm thời fallback về dense
-    print("[retrieve_hybrid] Chưa implement RRF — fallback về dense")
-    return retrieve_dense(query, top_k)
+    dense_results = retrieve_dense(query, top_k)
+    sparse_results = retrieve_sparse(query, top_k)
+    
+    rrf_scores ={}
 
+    for rank, chunk in enumerate(dense_results):
+        key = f"{chunk['metadata'].get('source','')}_{hash(chunk['text'])}"
+        if key not in rrf_scores:
+            rrf_scores[key] = {"chunk": chunk, "score": 0}
+        rrf_scores[key]["score"] += dense_weight * (1 / (60 + rank))
+    
+    for rank, chunk in enumerate(sparse_results):
+        key = chunk["text"][:100]
+        if key not in rrf_scores:
+            rrf_scores[key] = {"chunk": chunk, "score": 0}
+        rrf_scores[key]["score"] += sparse_weight * (1 / (60 + rank))
+    
+    sorted_results = sorted(
+        rrf_scores.values(),
+        key=lambda x: x["score"],
+        reverse=True
+    )
+    
+    return [chunk["chunk"] for chunk in sorted_results[:top_k]]
+
+
+# =============================================================================
+# RERANK (Sprint 3 alternative)
+# Cross-encoder để chấm lại relevance sau search rộng
+# =============================================================================
+
+def rerank(
+    query: str,
+    candidates: List[Dict[str, Any]],
+    top_k: int = TOP_K_SELECT,
+) -> List[Dict[str, Any]]:
+    """
+    Rerank các candidate chunks bằng cross-encoder.
+
+    Cross-encoder: chấm lại "chunk nào thực sự trả lời câu hỏi này?"
+    MMR (Maximal Marginal Relevance): giữ relevance nhưng giảm trùng lặp
+
+    Funnel logic (từ slide):
+      Search rộng (top-20) → Rerank (top-6) → Select (top-3)
+
+    TODO Sprint 3 (nếu chọn rerank):
+    Option A — Cross-encoder:
+        from sentence_transformers import CrossEncoder
+        model = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
+        pairs = [[query, chunk["text"]] for chunk in candidates]
+        scores = model.predict(pairs)
+        ranked = sorted(zip(candidates, scores), key=lambda x: x[1], reverse=True)
+        return [chunk for chunk, _ in ranked[:top_k]]
+
+    Option B — Rerank bằng LLM (đơn giản hơn nhưng tốn token):
+        Gửi list chunks cho LLM, yêu cầu chọn top_k relevant nhất
+
+    Khi nào dùng rerank:
+    - Dense/hybrid trả về nhiều chunk nhưng có noise
+    - Muốn chắc chắn chỉ 3-5 chunk tốt nhất vào prompt
+    """
+    # TODO Sprint 3: Implement rerank
+    # Tạm thời trả về top_k đầu tiên (không rerank)
+    from sentence_transformers import CrossEncoder
+    model = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
+    pairs = [[query, chunk["text"]] for chunk in candidates]
+    scores = model.predict(pairs)
+    ranked = sorted(zip(candidates, scores), key=lambda x: x[1], reverse=True)
+    return [chunk for chunk, _ in ranked[:top_k]]
 
 # =============================================================================
 # RERANK (Sprint 3 alternative)
@@ -245,16 +409,19 @@ def build_context_block(chunks: List[Dict[str, Any]]) -> str:
         meta = chunk.get("metadata", {})
         source = meta.get("source", "unknown")
         section = meta.get("section", "")
+        dept = meta.get("department", "unknown")
+        eff_date = meta.get("effective_date", "unknown")
         score = chunk.get("score", 0)
         text = chunk.get("text", "")
 
-        # TODO: Tùy chỉnh format nếu muốn (thêm effective_date, department, ...)
-        header = f"[{i}] {source}"
-        if section:
-            header += f" | {section}"
-        if score > 0:
-            header += f" | score={score:.2f}"
-
+        # Format header với đầy đủ metadata để AI có đủ thông tin trích dẫn
+        header_parts = [f"[{i}] SOURCE: {source}"]
+        if section: header_parts.append(f"SECTION: {section}")
+        if dept != "unknown": header_parts.append(f"DEPT: {dept}")
+        if eff_date != "unknown": header_parts.append(f"DATE: {eff_date}")
+        if score > 0: header_parts.append(f"SCORE: {score:.2f}")
+        
+        header = " | ".join(header_parts)
         context_parts.append(f"{header}\n{text}")
 
     return "\n\n".join(context_parts)
@@ -274,18 +441,21 @@ def build_grounded_prompt(query: str, context_block: str) -> str:
     - Thêm ngôn ngữ phản hồi (tiếng Việt vs tiếng Anh)
     - Điều chỉnh tone phù hợp với use case (CS helpdesk, IT support)
     """
-    prompt = f"""Answer only from the retrieved context below.
-If the context is insufficient to answer the question, say you do not know and do not make up information.
-Cite the source field (in brackets like [1]) when possible.
-Keep your answer short, clear, and factual.
-Respond in the same language as the question.
+    prompt = f"""Bạn là một trợ lý AI chuyên nghiệp cho khối CS + IT Helpdesk. 
+Hãy trả lời câu hỏi của người dùng CHỈ dựa trên các đoạn ngữ cảnh (Context) được cung cấp dưới đây.
 
-Question: {query}
+QUY TẮC CỐT LÕI:
+1. GROUNDED: Chỉ sử dụng thông tin có trong Context. Không dùng kiến thức bên ngoài.
+2. ABSTAIN: Nếu trong Context không có đủ thông tin để trả lời, hãy trả lời chính xác là: "Không đủ dữ liệu". Đừng cố bịa ra câu trả lời.
+3. CITATION: Trích dẫn nguồn cho mọi ý chính trong câu trả lời bằng cách đặt số thứ tự của tài liệu tương ứng trong ngoặc vuông ở cuối câu, ví dụ: [1], [2].
+4. NGÔN NGỮ: Trả lời bằng cùng ngôn ngữ với câu hỏi (Tiếng Việt).
 
-Context:
+NGỮ CẢNH (CONTEXT):
 {context_block}
 
-Answer:"""
+CÂU HỎI: {query}
+
+CÂU TRẢ LỜI:"""
     return prompt
 
 
@@ -316,10 +486,15 @@ def call_llm(prompt: str) -> str:
 
     Lưu ý: Dùng temperature=0 hoặc thấp để output ổn định cho evaluation.
     """
-    raise NotImplementedError(
-        "TODO Sprint 2: Implement call_llm().\n"
-        "Chọn Option A (OpenAI) hoặc Option B (Gemini) trong TODO comment."
+    from openai import OpenAI
+    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    response = client.chat.completions.create(
+        model=LLM_MODEL,
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0,     # temperature=0 để output ổn định, dễ đánh giá
+        max_tokens=512,
     )
+    return response.choices[0].message.content
 
 
 def rag_answer(
@@ -386,10 +561,11 @@ def rag_answer(
             print(f"  [{i+1}] score={c.get('score', 0):.3f} | {c['metadata'].get('source', '?')}")
 
     # --- Bước 2: Rerank (optional) ---
+    n_select = max(1, int(top_k_select))
     if use_rerank:
-        candidates = rerank(query, candidates, top_k=top_k_select)
+        candidates = rerank(query, candidates, top_k=n_select)
     else:
-        candidates = candidates[:top_k_select]
+        candidates = candidates[:n_select]
 
     if verbose:
         print(f"[RAG] After select: {len(candidates)} chunks")
@@ -405,10 +581,7 @@ def rag_answer(
     answer = call_llm(prompt)
 
     # --- Bước 5: Extract sources ---
-    sources = list({
-        c["metadata"].get("source", "unknown")
-        for c in candidates
-    })
+    sources = select_sources(candidates)
 
     return {
         "query": query,
