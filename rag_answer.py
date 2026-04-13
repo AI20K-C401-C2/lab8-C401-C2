@@ -111,9 +111,7 @@ def retrieve_dense(query: str, top_k: int = TOP_K_SEARCH) -> List[Dict[str, Any]
             })
             
     return chunks
-        n_results=n_results,
-        include=["documents", "metadatas", "distances"],
-    )
+
 
     documents = (results.get("documents") or [[]])[0]
     metadatas = (results.get("metadatas") or [[]])[0]
