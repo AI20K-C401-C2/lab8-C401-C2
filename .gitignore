@@ -10,3 +10,7 @@ __pycache__/
 htmlcov/
 chroma_db/
 *.log
+chroma_db/
+__pycache__/
+*.pyc
+.DS_Store
