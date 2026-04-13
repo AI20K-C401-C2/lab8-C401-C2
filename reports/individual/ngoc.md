@@ -9,32 +9,19 @@
 
 ## 1. Tôi đã làm gì trong lab này?
 
-Trong Lab này, với vai trò Evaluation Owner và Documentation Owner, tôi tập trung chính vào **Sprint 4: Đánh giá pipeline RAG**. Tôi đã triển khai toàn bộ module `eval.py` theo kiến trúc **LLM-as-Judge**: mỗi câu hỏi trong bộ test được chạy qua hai pipeline (Baseline Dense và Variant Hybrid), sau đó chấm điểm tự động theo bốn metrics — Faithfulness, Answer Relevance, Context Recall và Completeness — với mỗi metric có một prompt riêng gửi đến `gpt-4o-mini` và nhận về JSON `{"score": 1-5, "reason": "..."}`.
-
-Quyết định kỹ thuật cốt lõi của tôi là thiết kế **Context Recall** theo cơ chế deterministic (partial string match với `expected_sources`) thay vì dùng LLM để đo, giúp metric này ổn định và không bị ảnh hưởng bởi variance của judge. Bên cạnh chấm điểm, tôi cũng xây dựng logic **A/B comparison** — tổng hợp delta từng metric giữa baseline và variant, xác định winner theo ngưỡng 0.1 điểm, và in ra bảng per-question để truy vết câu nào cải thiện. Output cuối gồm 4 file: `scorecard_baseline.md`, `scorecard_variant.md`, `ab_comparison.csv` và `grading_run.json`.
-
-Về tài liệu kỹ thuật, tôi soạn `docs/architecture.md` mô tả toàn bộ kiến trúc pipeline (kèm sơ đồ Mermaid và ASCII art) và điền đầy đủ số liệu thực tế vào `docs/tuning-log.md`. Phần việc này đóng vai trò "gương phản chiếu" toàn bộ pipeline — nếu sprint nào có lỗi, scorecard sẽ phản ánh ngay, và tài liệu giúp nhóm truy nguyên nguyên nhân có hệ thống.
+Trong Lab này, với vai trò Evaluation Owner và Documentation Owner, tôi tập trung chính vào Sprint 4: Đánh giá và so sánh hiệu suất pipeline RAG. Tôi đã triển khai toàn bộ module `eval.py` theo kiến trúc LLM-as-Judge, chấm điểm tự động theo bốn tiêu chí — Faithfulness, Answer Relevance, Context Recall và Completeness — bằng cách gửi prompt tới `gpt-4o-mini` và nhận về điểm số từ 1–5 kèm lý do. Quyết định kỹ thuật cốt lõi của tôi là thiết kế Context Recall theo cơ chế xác định (string match với `expected_sources`) thay vì dùng LLM để đo, giúp metric này ổn định và không bị ảnh hưởng bởi variance của judge. Ngoài ra, tôi xây dựng logic A/B comparison — tổng hợp delta từng metric, xác định winner và in bảng per-question — để nhóm có bằng chứng định lượng khi quyết định variant nào tốt hơn. Về tài liệu, tôi soạn `docs/architecture.md` mô tả toàn bộ kiến trúc pipeline và điền đầy đủ số liệu thực tế vào `docs/tuning-log.md`. Phần việc này đóng vai trò "gương phản chiếu" toàn bộ pipeline — nếu sprint nào có lỗi, scorecard sẽ phản ánh ngay và tài liệu giúp nhóm truy nguyên nguyên nhân có hệ thống.
 
 ---
 
 ## 2. Điều tôi hiểu rõ hơn sau lab này
 
-Qua lab này, tôi hiểu rõ hơn về sự khác biệt thực chất giữa các metrics đánh giá RAG mà trước đây tôi thường nhầm lẫn. **Context Recall** và **Faithfulness** nghe có vẻ đo cùng một thứ, nhưng thực ra hoàn toàn khác nhau: Context Recall đo chất lượng của *retriever* — liệu hệ thống có lấy đúng tài liệu nguồn không — trong khi Faithfulness đo chất lượng của *generator* — liệu câu trả lời có bám sát vào context đã retrieve không. Trong kết quả của nhóm, Context Recall đạt 5.00/5 (retriever lấy đúng nguồn) nhưng Faithfulness chỉ 3.7/5 vì model đôi khi bổ sung thông tin ngoài context — đặc biệt rõ ở q06 khi baseline trả lời lạc sang quy trình cấp quyền thay vì quy trình escalation.
-
-Điều thú vị hơn là tôi nhận ra **LLM judge không ổn định tuyệt đối** dù đặt `temperature=0`. Khi chạy eval hai lần liên tiếp với cùng input, điểm Faithfulness của một số câu dao động ±1. Điều này khiến tôi hiểu tại sao trong thực tế người ta thường chạy evaluation nhiều lần và lấy trung bình, hoặc phải bổ sung các metrics deterministic song song với LLM-as-Judge để đảm bảo kết luận A/B đáng tin cậy.
+Qua lab này, tôi hiểu rõ hơn về sự khác biệt thực chất giữa Context Recall và Faithfulness — hai metrics có vẻ đo cùng một thứ nhưng thực ra hoàn toàn khác nhau. Context Recall đo chất lượng của retriever: liệu hệ thống có lấy đúng tài liệu nguồn không. Faithfulness đo chất lượng của generator: liệu câu trả lời có bám sát vào context đã retrieve không. Trong kết quả của nhóm, Context Recall đạt 5.00/5 nhưng Faithfulness chỉ 3.7/5 vì model đôi khi tự bổ sung thông tin ngoài context — đặc biệt rõ ở q06 khi baseline trả lời lạc sang quy trình cấp quyền thay vì quy trình escalation. Việc gắn metadata chi tiết (source, section, chunk_type) vào từng khối dữ liệu cũng là bài học thực tế quý giá; nó giúp Context Recall đo được chính xác tài liệu nào là nguồn tin đúng, từ đó phân biệt được retrieval fail hay generation fail một cách rõ ràng, thay vì chỉ nhìn vào điểm tổng.
 
 ---
 
 ## 3. Điều tôi ngạc nhiên hoặc gặp khó khăn
 
-Điều khó khăn nhất trong lab này không phải là viết code eval, mà là phải **debug ngược từ kết quả sai về nguyên nhân gốc rễ**. Khi chạy `eval.py` lần đầu, toàn bộ 10 câu trả về `PIPELINE_ERROR: Collection [rag_lab] does not exist` — điểm số đều là 1/5, không có thông tin gì để phân tích. Tôi phải trace ngược từ `eval.py` → `rag_answer.py` → `index.py` và tìm ra bốn lỗi tích lũy từ quá trình merge code:
-
-1. **`index.py` — SyntaxError tại `get_embedding()`**: Hai đoạn code chồng nhau do merge không sạch — một dòng `response = client.embeddings.create(` bị bỏ dở giữa chừng, làm mở ngoặc không đóng.
-2. **`index.py` — Dead code sliding-window trong `_split_by_size()`**: Hàm chứa hai implementations — phần đầu là sliding-window với overlap, phần sau reset `chunks = []` và dùng paragraph-based. Vì bị reset, phần sliding-window không bao giờ có tác dụng; code thực thi là paragraph-based theo `\n\n`, overlap thực tế = 0.
-3. **`rag_answer.py` — Hàm `rerank()` định nghĩa hai lần**: Python giữ định nghĩa sau cùng (chỉ return `candidates[:top_k]`), làm mất logic cross-encoder đã implement.
-4. **`rag_answer.py` — Dead code sau `return` trong `retrieve_dense()`**: 15 dòng code không bao giờ chạy.
-
-Điều tôi không ngờ là lỗi 2, 3, 4 không bị phát hiện bởi `python -m py_compile` — phải chạy thực tế mới thấy. Bài học: sau mỗi lần merge cần đọc diff cẩn thận, không chỉ kiểm tra compile.
+Điều khiến tôi ngạc nhiên nhất là khi chạy `eval.py` lần đầu, toàn bộ 10 câu đều trả về `PIPELINE_ERROR: Collection [rag_lab] does not exist` — điểm số đều là 1/5, không có thông tin gì để phân tích. Tôi phải trace ngược từ `eval.py` → `rag_answer.py` → `index.py` và tìm ra bốn lỗi tích lũy từ quá trình merge code: `get_embedding()` bị SyntaxError do hai đoạn code chồng nhau; `_split_by_size()` chứa dead code sliding-window bị reset bởi `chunks = []` ngay sau — code thực thi thật là paragraph-based theo `\n\n`, overlap thực tế bằng 0; `rerank()` bị định nghĩa hai lần khiến Python chỉ giữ phiên bản đơn giản hơn; và 15 dòng dead code xuất hiện sau `return` trong `retrieve_dense()`. Điều tôi không ngờ là ba lỗi cuối không bị phát hiện bởi `python -m py_compile` vì không phải lỗi cú pháp — phải chạy thực tế mới thấy. Giả thuyết ban đầu của tôi là lỗi nằm ở cấu hình ChromaDB, nhưng sau khi kiểm tra kỹ lưỡng, tôi nhận ra vấn đề gốc rễ nằm ở bước merge code thiếu kiểm tra.
 
 ---
 
@@ -42,16 +29,12 @@ Qua lab này, tôi hiểu rõ hơn về sự khác biệt thực chất giữa c
 
 **Câu hỏi:** *"ERR-403-AUTH là lỗi gì và cách xử lý?"* (id: q09)
 
-**Kết quả:** Baseline F=1, R=1, Rc=N/A, C=1. Variant F=1, R=1, Rc=N/A, C=1.
+Đây là câu hỏi thuộc nhóm "Insufficient Context" nhằm kiểm thử khả năng từ chối trả lời (abstain) của hệ thống. Không có file nào trong `data/docs/` đề cập đến mã lỗi ERR-403-AUTH, nên câu trả lời đúng là "Không đủ dữ liệu."
 
-Đây là câu thuộc nhóm **"Insufficient Context"** — được thiết kế để kiểm tra khả năng **abstain** (từ chối trả lời) của hệ thống khi không có thông tin trong tài liệu. Không có file nào trong `data/docs/` đề cập đến mã lỗi ERR-403-AUTH, vì vậy `expected_sources = []` và câu trả lời đúng là "Không đủ dữ liệu."
-
-Cả hai pipeline đều abstain đúng cách, nên điểm thấp (F=1, R=1) là *kỳ vọng*, không phải lỗi — judge chấm 1 vì không có context để verify, không phải vì trả lời sai. Tuy nhiên, câu này vẫn đáng phân tích vì nó thể hiện **rủi ro tiềm ẩn**: với Baseline Dense, vector search vẫn truy xuất các chunk có ngữ nghĩa "gần" như phân quyền hay bảo mật IT — nếu prompt không đủ chặt về ABSTAIN rule, LLM có thể bị "ám thị" và suy luận lỗi 403 là lỗi truy cập dựa trên model knowledge (hallucination).
-
-Lỗi tiềm năng nằm ở cả **Retrieval** (Dense không phân biệt được sự vắng mặt của exact keyword) và **Generation** (LLM chưa tuân thủ tuyệt đối grounding rule). Với Variant Hybrid, BM25 trả về score = 0 cho "ERR-403-AUTH" vì không có keyword match — tín hiệu này khi kết hợp với Dense giúp hệ thống xác định rõ hơn là thông tin không tồn tại, từ đó hỗ trợ LLM abstain chắc chắn hơn về mặt lý thuyết. Trong kết quả thực tế của nhóm, cả hai đều xử lý đúng, nhưng Hybrid cung cấp tín hiệu retrieval mạnh hơn để phòng ngừa hallucination ở corpus lớn hơn.
+Baseline và Variant đều abstain đúng (F=1, R=1, Rc=N/A, C=1 — điểm thấp là kỳ vọng vì không có context để verify, không phải vì trả lời sai). Tuy nhiên, câu này vẫn đáng phân tích vì nó thể hiện rủi ro tiềm ẩn: Dense retrieval vẫn truy xuất các chunk có ngữ nghĩa "gần giống" như phân quyền hay bảo mật IT. Nếu prompt không đủ chặt về ABSTAIN rule, LLM có thể bị "ám thị" bởi các ngữ cảnh liên quan và suy luận lỗi 403 là lỗi truy cập dựa trên kiến thức nền — đây là hallucination điển hình, vi phạm nguyên tắc grounding. Với Variant Hybrid, BM25 trả về score 0 cho "ERR-403-AUTH" do không có keyword match; tín hiệu rõ ràng này khi kết hợp với Dense giúp hệ thống xác định chắc chắn hơn là thông tin không tồn tại trong tài liệu, hỗ trợ LLM abstain đúng đắn hơn trong corpus lớn hơn ở tương lai.
 
 ---
 
 ## 5. Nếu có thêm thời gian, tôi sẽ làm gì?
 
-Nếu có thêm thời gian, tôi sẽ triển khai bước **Re-ranking bằng Cross-Encoder** trước khi đưa chunks vào prompt. Tôi chọn cải tiến này vì kết quả eval cho thấy **q06 (Escalation P1)** — Baseline trả về thông tin về cấp quyền khẩn cấp thay vì quy trình escalation 10 phút, nguyên nhân là chunk đúng bị đẩy xuống vị trí thấp trong top-3 (lost-in-middle effect). Cross-Encoder sẽ chấm lại relevance từng chunk so với query, đảm bảo chunk chứa "10 phút escalation" được đặt lên đầu context — từ đó Completeness kỳ vọng tăng mà không cần thay đổi retrieval hay generation logic. Đây là cải tiến có evidence từ scorecard, không phải cải thiện chung chung.
+Nếu có thêm thời gian, tôi sẽ triển khai bước re-ranking bằng Cross-Encoder kết hợp với multi-run aggregation cho LLM judge. Tôi chọn cải tiến này vì kết quả evaluation cho thấy q06 (Escalation P1) có Completeness chỉ đạt 2/5 ở Baseline do chunk đúng bị đẩy xuống vị trí thấp (lost-in-middle effect) — Cross-Encoder sẽ chấm lại relevance từng chunk và đặt chunk quan trọng nhất lên đầu context. Đồng thời, tôi nhận ra LLM judge có variance nhỏ nhưng đáng kể khi delta A/B dưới 0.2, nên chạy mỗi câu 3 lần và lấy median sẽ cho kết luận so sánh đáng tin cậy hơn.
