@@ -283,6 +283,8 @@ def build_index(docs_dir: Path = DOCS_DIR, db_dir: Path = CHROMA_DB_DIR) -> None
         raw_text = filepath.read_text(encoding="utf-8")
 
         doc = preprocess_document(raw_text, str(filepath))
+
+        # Gọi chunk_document
         chunks = chunk_document(doc)
 
         print(f"    → Tổng số {len(chunks)} chunks, đang embedding và lưu vào ChromaDB...")
